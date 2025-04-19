@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Судебные заседания</title>
+  <style>
+    body {
+      background-color: #1e1e1e;
+      color: #f0f0f0;
+      font-family: Arial, sans-serif;
+      padding: 20px;
+    }
+    textarea {
+      width: 100%;
+      height: 300px;
+      margin-bottom: 20px;
+      background: #111;
+      color: #eee;
+      padding: 10px;
+    }
+    button {
+      background: orange;
+      color: black;
+      padding: 10px 20px;
+      border: none;
+      font-weight: bold;
+      cursor: pointer;
+      border-radius: 5px;
+      margin: 5px 5px 5px 0;
+    }
+    .case {
+      background: #2c2c2c;
+      padding: 15px;
+      margin-bottom: 20px;
+      border-left: 4px solid orange;
+      border-radius: 8px;
+    }
+    .edit-form input {
+      width: 100%;
+      margin-bottom: 5px;
+      padding: 5px;
+      background: #333;
+      color: #fff;
+      border: 1px solid #555;
+      border-radius: 4px;
+    }
+    .edit-buttons {
+      margin-top: 10px;
+    }
+    .edit-buttons button {
+      margin-right: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Парсер судебных заседаний</h1>
+  <textarea id="inputText" placeholder="Вставь сюда текст..."></textarea>
+  <div>
+    <button onclick="parseCases()">Распарсить</button>
+    <button onclick="addNew()">Добавить новое</button>
+    <button onclick="clearAll()">Очистить всё</button>
+  </div>
+  <div>
+    <button onclick="filterCases('today')">На сегодня</button>
+    <button onclick="filterCases('future')">Будущие</button>
+    <button onclick="filterCases('past')">Прошедшие</button>
+    <button onclick="filterCases('all')">Показать все</button>
+  </div>
+  <div id="results"></div>
+
+  <script>
+    let parsedCases = [];
+
+    function saveToStorage() {
+      localStorage.setItem("parsedCases", JSON.stringify(parsedCases));
+    }
+
+    function loadFromStorage() {
+      const saved = localStorage.getItem("parsedCases");
+      if (saved) {
+        parsedCases = JSON.parse(saved);
+        renderCases(parsedCases);
+      }
+    }
+
+    function clearAll() {
+      if (confirm("Вы точно хотите удалить все сохранённые данные?")) {
+        localStorage.removeItem("parsedCases");
+        parsedCases = [];
+        document.getElementById("results").innerHTML = "";
+      }
+    }
+
+    function addNew() {
+      const input = document.getElementById("inputText").value;
+      const newParsed = parseText(input);
+      parsedCases = [...parsedCases, ...newParsed];
+      saveToStorage();
+      renderCases(parsedCases);
+    }
+
+    function parseCases() {
+      const input = document.getElementById("inputText").value;
+      parsedCases = parseText(input);
+      saveToStorage();
+      renderCases(parsedCases);
+    }
+
+    function parseText(input) {
+      const blocks = input.split(/Назначено судебное заседание\s*№\s*\d+\./i);
+      const matches = input.matchAll(/Назначено судебное заседание\s*№\s*(\d+)\./gi);
+      const numbers = [...matches].map(m => m[1]);
+
+      const result = [];
+
+      blocks.slice(1).forEach((block, i) => {
+        const getRegex = (pattern) => {
+          const match = block.match(pattern);
+          return match ? match[1].trim() : "—";
+        };
+
+        const caseData = {
+          "Номер иска": numbers[i] ?? "—",
+          "Инстанция суда": getRegex(/(Окружной суд|Верховный суд|Апелляционный суд)/i),
+          "Вид суда": getRegex(/Вид суда:\s*(Открытый|Закрытый)/i),
+          "Место проведения": getRegex(/Место проведения:\s*(.+)/i),
+          "Дата и время": getRegex(/Дата и время:\s*(.+)/i),
+          "Ссылка": getRegex(/(https:\/\/forum\.gta5rp\.com\/threads\/[^\s]+)/i)
+        };
+
+        const dashCount = Object.values(caseData).filter(v => v === "—").length;
+        if (dashCount <= 3) result.push(caseData);
+      });
+
+      return result;
+    }
+
+    function renderCases(cases) {
+      const results = document.getElementById("results");
+      results.innerHTML = "";
+
+      cases.forEach((c, index) => {
+        const div = document.createElement("div");
+        div.className = "case";
+
+        const contentDiv = document.createElement("div");
+        contentDiv.innerHTML = Object.entries(c)
+          .map(([k, v]) => `<div><strong>${k}:</strong> ${v}</div>`)
+          .join("");
+
+        const editBtn = document.createElement("button");
+        editBtn.textContent = "✏️ Редактировать";
+        editBtn.onclick = () => showEditForm(index, div, c);
+
+        const deleteBtn = document.createElement("button");
+        deleteBtn.textContent = "🗑️ Удалить";
+        deleteBtn.onclick = () => {
+          if (confirm("Удалить этот блок?")) {
+            parsedCases.splice(index, 1);
+            saveToStorage();
+            renderCases(parsedCases);
+          }
+        };
+
+        div.appendChild(contentDiv);
+        div.appendChild(editBtn);
+        div.appendChild(deleteBtn);
+
+        results.appendChild(div);
+      });
+    }
+
+    function showEditForm(index, parentDiv, caseData) {
+      parentDiv.innerHTML = "";
+
+      const form = document.createElement("div");
+      form.className = "edit-form";
+
+      const inputs = {};
+      for (let key in caseData) {
+        const input = document.createElement("input");
+        input.value = caseData[key];
+        form.appendChild(input);
+        inputs[key] = input;
+      }
+
+      const buttonContainer = document.createElement("div");
+      buttonContainer.className = "edit-buttons";
+
+      const saveBtn = document.createElement("button");
+      saveBtn.textContent = "💾 Сохранить";
+      saveBtn.onclick = () => {
+        for (let key in inputs) {
+          parsedCases[index][key] = inputs[key].value;
+        }
+        saveToStorage();
+        renderCases(parsedCases);
+      };
+
+      const cancelBtn = document.createElement("button");
+      cancelBtn.textContent = "❌ Отмена";
+      cancelBtn.onclick = () => renderCases(parsedCases);
+
+      buttonContainer.appendChild(saveBtn);
+      buttonContainer.appendChild(cancelBtn);
+
+      form.appendChild(buttonContainer);
+      parentDiv.appendChild(form);
+    }
+
+function filterCases(type) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  const normalize = (str) => str.replace(' в ', ' ')
+    .replace('часов', ':').replace('часа', ':')
+    .replace('минут', '').replace(/\s+/g, ' ').trim();
+
+  const filtered = parsedCases.filter(c => {
+    const raw = normalize(c["Дата и время"]);
+    const match = raw.match(/(\d{2})\.(\d{2})\.(\d{4})\s*(\d{2}):?(\d{2})?/);
+    if (!match) return false;
+
+    const [_, day, month, year, hour = "0", minute = "0"] = match;
+    const caseDate = new Date(+year, +month - 1, +day, +hour, +minute);
+    const caseDay = new Date(+year, +month - 1, +day);
+
+    const isToday = caseDay.getTime() === today.getTime();
+    const isFuture = caseDate > now;
+    const isPast = caseDate < now;
+
+    if (type === "today") return isToday;
+    if (type === "future") return isFuture && !isToday;
+    if (type === "past") return isPast && !isToday;
+    return true;
+  });
+
+  renderCases(filtered);
+}
+
+    window.onload = loadFromStorage;
+  </script>
+</body>
+</html>
